@@ -70,8 +70,8 @@ def run_main(data_RC, data_FF, SOCmax=100, ESmax=100):
     model.SSW_draw = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, maxFlowSSW))
     model.DSW_draw = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, maxFlowDSW))
 
-    model.transfer_SSW = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, transferMax))
-    model.transfer_DSW = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, transferMax))
+    model.transferSSW = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, transferMax))
+    model.transferDSW = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, transferMax))
     model.dischargePower = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, ESmax))
     model.purchasedPower = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, PmaxRC))
     model.stateOfCharge = Var(model.zone, model.time, domain=NonNegativeReals, bounds=(0, SOCmax))
@@ -105,17 +105,17 @@ def run_main(data_RC, data_FF, SOCmax=100, ESmax=100):
         return model.peak_power[zone] >= model.purchasedPower[zone, time]
 
     def SSW_balance(model, zone, time):
-        return model.SSW_demand[zone, time] + model.trasnferSSW[zone, time] == model.SSW_draw[zone, time]
+        return model.SSW_demand[zone, time] + model.transferSSW[zone, time] == model.SSW_draw[zone, time]
 
     def transfer_SSWoneWay(model, time):
-        return model.transfer_SSW[0, time] == 0
+        return model.transferSSW[0, time] == 0
 
 
     def DSW_balance(model, zone, time):
-        return model.DSW_demand[zone, time] + model.trasnferDSW[zone, time] == model.DSW_draw[zone, time]
+        return model.DSW_demand[zone, time] + model.transferSSW[zone, time] == model.DSW_draw[zone, time]
 
     def transfer_DSWoneWay(model, time):
-        return model.transfer_DSW[0, time] == 0
+        return model.transferDSW[0, time] == 0
 
     def stateOfCharge(model, zone, time):
         if time == 0:
@@ -200,8 +200,8 @@ def run_main(data_RC, data_FF, SOCmax=100, ESmax=100):
     model.constraint_DSW_balance = Constraint(model.zone, model.time, rule=DSW_balance)
     model.constraint_SSW_mass_flow = Constraint(model.zone, model.time, rule=SSW_mass_flow)
     model.constraint_DSW_mass_flow = Constraint(model.zone, model.time, rule=DSW_mass_flow)
-    model.constraint_oneWayTransferSSW = Constraint(model.zone, model.time, rule=transfer_SSWoneWay)
-    model.constraint_oneWayTransferDSW = Constraint(model.zone, model.time, rule=transfer_DSWoneWay)
+    model.constraint_oneWayTransferSSW = Constraint(model.time, rule=transfer_SSWoneWay)
+    model.constraint_oneWayTransferDSW = Constraint(model.time, rule=transfer_DSWoneWay)
     model.constraint_SSW_power_demand = Constraint(model.zone, model.time, rule=SSW_power_demand)
     model.constraint_DSW_power_demand = Constraint(model.zone, model.time, rule=DSW_power_demand)
 
