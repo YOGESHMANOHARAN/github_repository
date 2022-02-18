@@ -458,6 +458,7 @@ model.constraint_maximum_cap_of_a_DSWpump = Constraint(model.zone, model.month, 
 #1 model.constraint_consecutive_DSW_constraint2 = Constraint(model.zone, model.month,model.time, rule=consecutive_DSW_constraint2)
 # 1model.constraint_consecutive_DSW_constraint3 = Constraint(model.zone, model.month,model.time, rule=consecutive_DSW_constraint3)
 # 1model.constraint_cumulative_DSW_beta = Constraint(model.zone, model.month, model.time, rule=cumulative_DSW_beta)
+
 model.constraint_finalSOC = Constraint(model.zone, rule=final_stateOfCharge)
 
 instance = model.create_instance(report_timing=True)
