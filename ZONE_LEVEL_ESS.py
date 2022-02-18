@@ -348,6 +348,8 @@ def DSWpump_to_draw_its_MaxGpm(model,zone):
 #     return sum(model.beta_DSW[breaks, zone, month, time] for breaks in model.breaks) == 1
 ####### endregion
 
+##### BATTERY TEMPERATURE ####
+
 def battery_temperature (model,zone,month,time):
     return model.battery_temperature[zone, month, time] == (1 - 0.74) * model.chargePower[zone,month,time] + (1 - 0.74) * model.dischargePower[zone,month,time]
 
