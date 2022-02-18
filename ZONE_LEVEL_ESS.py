@@ -142,11 +142,11 @@ model.stateOfCharge = Var(model.zone,model.month,model.time, domain=NonNegativeR
 model.curtailedPower = Var(model.zone,model.month,model.time, domain=NonNegativeReals, bounds=(0, solarMax))
 model.installed_capacity_kw = Var(model.zone, domain=NonNegativeReals, bounds=(ESmin, ESmax))
 model.installed_capacity_kwh = Var(model.zone, domain=NonNegativeReals, bounds=(ESmin, ESmax*6))
-model.battery_charged     = Var(model.zone, model.month, model.time, domain = NegativeReals, bounds = (0, ESmax*6))
-model.battery_discharged  = Var(model.zone, model.month, model.time, domain = NonNegativeReals, bounds=(0,ESmax*6))
+# model.battery_charged     = Var(model.zone, model.month, model.time, domain = NegativeReals, bounds = (0, ESmax*6))
+# model.battery_discharged  = Var(model.zone, model.month, model.time, domain = NonNegativeReals, bounds=(0,ESmax*6))
 model.battery_temperature = Var(model.zone, model.month, model.time, domain= NonNegativeReals, bounds=(0,500))
-model.battery_charge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
-model.battery_discharge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
+# model.battery_charge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
+# model.battery_discharge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
 model.gamma = Var(model.zone, model.month, model.time, domain=Binary)
 #1 model.on_off = Var(model.zone, model.month, model.time, domain=Binary)
 
@@ -348,6 +348,9 @@ def DSWpump_to_draw_its_MaxGpm(model,zone):
 #     return sum(model.beta_DSW[breaks, zone, month, time] for breaks in model.breaks) == 1
 # endregion
 
+def battery_temperature (model,zone,month,time):
+    return model.battery_temperature[zone, month, time] == (1 - 0.74) * model.chargePower[zone,month,time] + (1 - 0.74) * model.dischargePower[zone,month,time]
+
 
 def time_of_use(model):
     return 7.75 * sum([model.purchasedPower[zone, month, time] * kWh_price[zone] * dt
@@ -360,21 +363,21 @@ def time_of_use(model):
                       for zone in model.zone])
 model.objective = Objective(rule=time_of_use, sense=minimize)
 
-def battery_charged(model,zone,month,time):
-    if time == 0:
-        return model.battery_charged [zone,month,time] == 0.5 * model.installed_capacity_kwh[zone]
-    elif time != 0 and model.chargePower[zone, month, time]!=0:
-        return model.battery_charged [zone,month,time] == model.stateOfCharge[zone,month,time] - model.stateOfCharge[zone,month,time-1]
-    elif time != 0 and model.chargePower[zone, month, time] == 0:
-        return model.battery_charged [zone,month,time] == 0
-
-def battery_charge_efficiency (model,zone,month,time):
-    if time==0:
-       return model.battery_charge_efficiency[zone, month, time] == 0.74
-    elif time != 0 and model.chargePower[zone, month, time] != 0:
-       return model.battery_charge_efficiency[zone, month, time] == model.battery_charged[zone, month, time] / model.chargePower[zone, month, time]
-    elif time != 0 and model.chargePower[zone, month, time] == 0:
-        return model.battery_charge_efficiency[zone, month, time] == 1
+# def battery_charged(model,zone,month,time):
+#     if time == 0:
+#         return model.battery_charged [zone,month,time] == 0.5 * model.installed_capacity_kwh[zone]
+#     elif time != 0 and model.chargePower[zone, month, time]!=0:
+#         return model.battery_charged [zone,month,time] == model.stateOfCharge[zone,month,time] - model.stateOfCharge[zone,month,time-1]
+#     elif time != 0 and model.chargePower[zone, month, time] == 0:
+#         return model.battery_charged [zone,month,time] == 0
+#
+# def battery_charge_efficiency (model,zone,month,time):
+#     if time==0:
+#        return model.battery_charge_efficiency[zone, month, time] == 0.74
+#     elif time != 0 and model.chargePower[zone, month, time] != 0:
+#        return model.battery_charge_efficiency[zone, month, time] == model.battery_charged[zone, month, time] / model.chargePower[zone, month, time]
+#     elif time != 0 and model.chargePower[zone, month, time] == 0:
+#         return model.battery_charge_efficiency[zone, month, time] == 1
 
 # def battery_discharged(model,zone,month,time):
 #     if time == 0:
@@ -393,13 +396,13 @@ def battery_charge_efficiency (model,zone,month,time):
 #         return model.battery_discharge_efficiency[zone,month,time]== 1
 
 ### temperature model ####
-def battery_temperature_onCharging (model,zone,month,time):
-    if time==0:
-        return model.battery_temperature[zone,month,time]==0
-    elif time >>0 and model.chargePower[zone,month,time] !=0:
-        return model.battery_temperature[zone,month,time] == (1-model.battery_charge_efficiency[zone,month,time]) * model.chargePower[zone,month,time]
-    elif time>>0 and model.chargePower[zone,month,time] == 0:
-        return model.battery_temperature[zone,month,time] == 0
+# def battery_temperature_onCharging (model,zone,month,time):
+#     if time==0:
+#         return model.battery_temperature[zone,month,time]==0
+#     elif time >>0 and model.chargePower[zone,month,time] !=0:
+#         return model.battery_temperature[zone,month,time] == (1-model.battery_charge_efficiency[zone,month,time]) * model.chargePower[zone,month,time]
+#     elif time>>0 and model.chargePower[zone,month,time] == 0:
+#         return model.battery_temperature[zone,month,time] == 0
 
 # def battery_temperature_onDischarging (model,zone,month,time):
 #     if time==0:
