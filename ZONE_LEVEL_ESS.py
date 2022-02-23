@@ -350,8 +350,8 @@ def DSWpump_to_draw_its_MaxGpm(model,zone):
 
 ##### BATTERY TEMPERATURE ####
 
-def battery_temperature (model,zone,month,time):
-    return model.battery_temperature[zone, month, time] == (1 - 0.74) * model.chargePower[zone,month,time] + (1 - 0.74) * model.dischargePower[zone,month,time]
+# def battery_temperature (model,zone,month,time):
+#     return model.battery_temperature[zone, month, time] == (1 - 0.74) * model.chargePower[zone,month,time] + (1 - 0.74) * model.dischargePower[zone,month,time]
 
 
 def time_of_use(model):
@@ -364,6 +364,10 @@ def time_of_use(model):
            + sum([Battery_cost_kwh * model.installed_capacity_kwh[zone]
                       for zone in model.zone])
 model.objective = Objective(rule=time_of_use, sense=minimize)
+
+
+# def battery_temperature (model,zone,month,time):
+#     return model.battery_temperature[zone, month, time] == ((1 - 0.74) * model.chargePower[zone,month,time] ) + ((1 - 0.74) * model.dischargePower[zone,month,time])
 
 # def battery_charged(model,zone,month,time):
 #     if time == 0:
@@ -554,7 +558,7 @@ summary['SOC'] = [instance.stateOfCharge[0, month, time].value
                          for month in model.month
                          for time in model.time ]
 
-summary['battery_temperature'] = [instance.battery_temperature[0,month,time].value
+summary['battery_temperature'] = [0.26*instance.chargePower[0,month,time].value + 0.26*instance.dischargePower[0,month,time].value
                                 for month in model.month
                                 for time in model.time ]
 
@@ -620,9 +624,9 @@ summary2['SOC'] = [instance.stateOfCharge[1, month, time].value
                         for month in model.month
                         for time in model.time ]
 
-summary2['battery_temperature'] = [ instance.battery_temperature[1,month,time].value
-                                   for month in model.month
-                                   for time in model.time ]
+summary2['battery_temperature'] = [0.26*instance.chargePower[1,month,time].value + 0.26*instance.dischargePower[1,month,time].value
+                                for month in model.month
+                                for time in model.time ]
 
 summary2['FF peak power'] = np.nan
 summary2['FF peak power'].iloc[0:12] = [instance.peak_power[1, month].value
