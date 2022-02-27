@@ -66,8 +66,12 @@ solarMax = solar[0].max()
 charge_eff = 0.74
 discharge_eff = 0.74
 Pmax = 100
-dt = 15 / 60  #Need to calculate this for different time steps
+dt = 15 / 60  #### Need to calculate this for different time steps
+convec_coeff = 10 #### convective heat transfer coefficient ( w/m^2 k)
+env_temp = 25
+bat_area = 1
 # endregion
+
 
 ########## coefficients of pump efficiency equation #######
 
@@ -144,7 +148,10 @@ model.installed_capacity_kw = Var(model.zone, domain=NonNegativeReals, bounds=(E
 model.installed_capacity_kwh = Var(model.zone, domain=NonNegativeReals, bounds=(ESmin, ESmax*6))
 # model.battery_charged     = Var(model.zone, model.month, model.time, domain = NegativeReals, bounds = (0, ESmax*6))
 # model.battery_discharged  = Var(model.zone, model.month, model.time, domain = NonNegativeReals, bounds=(0,ESmax*6))
-model.battery_temperature = Var(model.zone, model.month, model.time, domain= NonNegativeReals, bounds=(0,500))
+model.bat_temp = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
+model.bat_temp_conve = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
+model.bat_temp_con = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
+model.bat_temp_gen_fac= Var (model.zone,model.month,model.time, domain = Binary)
 # model.battery_charge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
 # model.battery_discharge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
 model.gamma = Var(model.zone, model.month, model.time, domain=Binary)
@@ -219,7 +226,7 @@ def transfer_DSWdirection(model,month, time):
 
 
 def transfer_DSWoneWay(model,month, time):
-    return model.transferDSW[0,month, time] <= 0# endregion
+    return model.transferDSW[0,month, time] <= 0    # endregion
 
 
 def stateOfCharge(model, zone, month, time):
@@ -265,16 +272,33 @@ def control_charge_power(model, zone, month, time):
 def control_discharge_power(model, zone, month, time):
     return model.dischargePower[zone, month, time] <= (1 - model.gamma[zone, month, time]) * ESmax
 
+##### BATTERY TEMPERATURE ####
+
+def batterytemperature_con (model,zone,month,time):
+    return model.bat_temp_con[zone, month, time] == 0.26 * model.chargePower[zone,month,time]\
+                                                                + (0.26 * model.dischargePower[zone,month,time])
+def bat_temp_gen_factor (model, zone, month, time):
+    return model.bat_temp_gen_fac[zone,month,time] == (model.bat_temp_con [zone,month,time]/model.bat_temp_con [zone,month,time])
+
+def batterytemperature_conve (model,zone,month,time):
+    return model.bat_temp_conve[zone, month, time] == convec_coeff * bat_area * (model.bat_temp_con[zone,month,time] - env_temp) * model.bat_temp_gen_fac[zone,month,time]
+
+def batterytemperature (model,zone,month,time):
+     if time == 0:
+         return model.bat_temp [zone,month, time]==0
+     else:
+         return model.bat_temp[zone,month,time] == model.bat_temp_con[zone,month,time] + model.bat_temp_conve[zone,month,time]
+
 def to_turn_on_SSW_pump(model,zone,month,time):
     return model.SSW_pumpOn[zone, month, time] >= model.SSW_pumped[zone,month,time] / SSW_pump_max_gpm[zone]
 
 def to_turn_on_DSW_pump(model,zone,month,time):
     return model.DSW_pumpOn[zone,month, time] >= model.DSW_pumped[zone,month,time] / DSW_pump_max_gpm[zone]
 
-def SSWpump_to_draw_its_MaxGpm(model,zone):
+def SSWpump_to_draw_its_MaxGpm(model,zone): ####### never used
     return model.SSW_pumped[zone,month,time] == SSW_pump_max_gpm[zone]
 
-def DSWpump_to_draw_its_MaxGpm(model,zone):
+def DSWpump_to_draw_its_MaxGpm(model,zone): ####### never used
     return model.DSW_pump[zone,month,time] == DSW_pump_max_gpm[zone]
 
 
@@ -348,10 +372,6 @@ def DSWpump_to_draw_its_MaxGpm(model,zone):
 #     return sum(model.beta_DSW[breaks, zone, month, time] for breaks in model.breaks) == 1
 ####### endregion
 
-##### BATTERY TEMPERATURE ####
-
-# def battery_temperature (model,zone,month,time):
-#     return model.battery_temperature[zone, month, time] == (1 - 0.74) * model.chargePower[zone,month,time] + (1 - 0.74) * model.dischargePower[zone,month,time]
 
 
 def time_of_use(model):
@@ -433,12 +453,16 @@ model.constraint_controlling_chargepower_shortmonthend = Constraint(model.zone, 
 model.constraint_controlling_dischargepower_shortmonthend = Constraint(model.zone, model.month,model.time, rule=controlling_dischargepower_shortmonthend)
 model.constraint_control_charge_power = Constraint(model.zone, model.month,model.time, rule=control_charge_power)
 model.constraint_control_discharge_power = Constraint(model.zone, model.month,model.time, rule=control_discharge_power)
+model.constraint_bat_temp_con = Constraint(model.zone,model.month,model.time,rule=batterytemperature_con)
+model.constraint_bat_temp_conve = Constraint(model.zone,model.month,model.time,rule=batterytemperature_conve)
+model.constraint_bat_temp= Constraint (model.zone,model.month,model.time, rule=batterytemperature)
 # model.constraint_SSWpump_to_draw_its_MaxGpm = Constraint(model.zone,rule= SSWpump_to_draw_its_MaxGpm)
 # model.constraint_DSWpump_to_draw_its_MaxGpm = Constraint(model.zone,rule= DSWpump_to_draw_its_MaxGpm)
 ## model.constraint_to_turn_on_RC_SSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_RC_SSWpump)
 ## model.constraint_to_turn_on_RC_DSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_RC_DSWpump)
 ## model.constraint_to_turn_on_FF_SSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_FF_SSWpump)
 ## model.constraint_to_turn_on_FF_DSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_FF_DSWpump)
+model.constraint_bat_temp_gen_fac=Constraint(model.zone,model.month,model.time,rule =bat_temp_gen_factor)
 model.constraint_to_turn_on_SSW_pump = Constraint(model.zone,model.month,model.time, rule= to_turn_on_SSW_pump)
 model.constraint_to_turn_on_DSW_pump = Constraint(model.zone,model.month,model.time, rule= to_turn_on_DSW_pump)
 model.constraint_peak_power = Constraint(model.zone, model.month,model.time, rule=peak_power)
@@ -476,7 +500,7 @@ opt.options["IntFeasTol"] = 1e-2
 opt.options['NodefileStart'] = 0.90
 opt.options["NodeMethod"] = 1
 opt.options["MIPGapAbs"] = 0.05
-opt.options["MIPGap"] = 0.05
+opt.options["MIPGap"] = 0.20
 opt.options["Method"] = 1
 # opt.options["TimeLimit"] = 10000
 opt.options["MIPFocus"]= 1
@@ -558,7 +582,7 @@ summary['SOC'] = [instance.stateOfCharge[0, month, time].value
                          for month in model.month
                          for time in model.time ]
 
-summary['battery_temperature'] = [0.26*instance.chargePower[0,month,time].value + 0.26*instance.dischargePower[0,month,time].value
+summary['battery_temperature'] = [instance.bat_temp[0,month,time].value
                                 for month in model.month
                                 for time in model.time ]
 
@@ -624,7 +648,7 @@ summary2['SOC'] = [instance.stateOfCharge[1, month, time].value
                         for month in model.month
                         for time in model.time ]
 
-summary2['battery_temperature'] = [0.26*instance.chargePower[1,month,time].value + 0.26*instance.dischargePower[1,month,time].value
+summary2['battery_temperature'] = [instance.bat_temp[1,month,time].value
                                 for month in model.month
                                 for time in model.time ]
 
