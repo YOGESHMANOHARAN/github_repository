@@ -40,10 +40,11 @@ solar = [np.load('RC_Solar_array1.npy'), np.load('ff_Solar_array.npy')]
 base_demand = [np.load('new_RC_kW.npy'),np.load('new_ff_kW.npy')]
 SSW_demand = [np.load('new_RC_SSW_demand.npy'),np.load('new_ff_SSW_demand.npy')]
 DSW_demand = [np.load('new_RC_DSW_demand.npy'),np.load('new_ff_DSW_demand.npy')]
+envtemp = [np.load('envTemp1.npy'),np.load('envTemp1.npy')]
 # SSW_points = [pd.read_excel('linear_eff_RC.xlsx',sheet_name='SSW'),pd.read_excel('linear_eff_55.xlsx',sheet_name='SSW')]
 # DSW_points = [pd.read_excel('linear_eff_RC.xlsx',sheet_name='DSW'),pd.read_excel('linear_eff_55.xlsx',sheet_name='DSW')]
 
-end_time = len(solar[0][0])-1-2500
+end_time = len(solar[0][0])-1
 model.time = RangeSet(0, end_time)
 Battery_cost_kw = 156
 Battery_cost_kwh = 408
@@ -63,13 +64,17 @@ solarMax = solar[0].max()
 # print(solarMax)
 
 # SOCmax = 1000  # Maximum state-of-charge in kWh
-charge_eff = 0.74
-discharge_eff = 0.74
+charge_eff = 0.86
+discharge_eff = 0.86
 Pmax = 100
 dt = 15 / 60  #### Need to calculate this for different time steps
 convec_coeff = 10 #### convective heat transfer coefficient ( w/m^2 k)
-env_temp = 25
-bat_area = 1
+
+bat_area = 1.38 ## meter^2
+battery_mass = 210000   ## grams
+specific_heat_cap = 1 ### j/g.K
+emissivity = 0.84
+sigma = 5.67 * 10**-8
 # endregion
 
 
@@ -86,6 +91,8 @@ A2_DSW = {0:-0.0000001, 1:0.00000001}
 A1_DSW ={0:0.0162, 1:0.0185}
 
 A0_DSW ={0:11.202, 1:11.952}
+
+
 
 ###### maximum capacity of each pump #####
 
@@ -117,6 +124,9 @@ def DSW1_demand(model, zone,month, time):
     return DSW_demand[zone][month-1, time]
 model.DSW_demand = Param(model.zone,model.month, model.time, initialize = DSW1_demand)
 
+def EnvTemp(model, zone,month, time):
+    return ( envtemp[zone][month-1, time] -32) * (5/9) + 273.15
+model.envTemp = Param(model.zone,model.month, model.time, initialize = EnvTemp)
 
 # def SSW_pump_capacity(model,zone, pump):
 #     return SSW_pump_max_gpm [zone][pump]
@@ -150,8 +160,10 @@ model.installed_capacity_kwh = Var(model.zone, domain=NonNegativeReals, bounds=(
 # model.battery_discharged  = Var(model.zone, model.month, model.time, domain = NonNegativeReals, bounds=(0,ESmax*6))
 model.bat_temp = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
 model.bat_temp_conve = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
-model.bat_temp_con = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
-model.bat_temp_gen_fac= Var (model.zone,model.month,model.time, domain = Binary)
+model.bat_temp_gen = Var(model.zone, model.month, model.time, domain= NonNegativeReals)
+model.battery_temperature = Var (model.zone,model.month,model.time, domain=NonNegativeReals)
+# model.changing_bat_temp = Var (model.zone,model.month,model.time, domain = NonNegativeReals)
+# model.bat_temp_gen_fac= Var (model.zone,model.month,model.time, domain = Binary)
 # model.battery_charge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
 # model.battery_discharge_efficiency = Var(model.zone, model.month, model.time, domain=NonNegativeReals, bounds=(0,1))
 model.gamma = Var(model.zone, model.month, model.time, domain=Binary)
@@ -274,21 +286,18 @@ def control_discharge_power(model, zone, month, time):
 
 ##### BATTERY TEMPERATURE ####
 
-def batterytemperature_con (model,zone,month,time):
-    return model.bat_temp_con[zone, month, time] == 0.26 * model.chargePower[zone,month,time]\
+def batterytemperature_gen (model,zone,month,time):
+    return model.bat_temp_gen[zone, month, time] == 0.26 * model.chargePower[zone,month,time]\
                                                                 + (0.26 * model.dischargePower[zone,month,time])
-def bat_temp_gen_factor (model, zone, month, time):
-    return model.bat_temp_gen_fac[zone,month,time] == (model.bat_temp_con [zone,month,time]/model.bat_temp_con [zone,month,time])
-
-def batterytemperature_conve (model,zone,month,time):
-    return model.bat_temp_conve[zone, month, time] == convec_coeff * bat_area * (model.bat_temp_con[zone,month,time] - env_temp) * model.bat_temp_gen_fac[zone,month,time]
 
 def batterytemperature (model,zone,month,time):
      if time == 0:
-         return model.bat_temp [zone,month, time]==0
+         return model.battery_temperature[zone,month, time] == 299.15
      else:
-         return model.bat_temp[zone,month,time] == model.bat_temp_con[zone,month,time] + model.bat_temp_conve[zone,month,time]
-
+         return model.battery_temperature[zone,month,time] == model.battery_temperature[zone,month,time-1] + \
+                                                              (model.bat_temp_gen [zone,month,time] - ((convec_coeff * bat_area * (model.battery_temperature[zone,month,time-1] - model.envTemp[zone,month,time]))\
+                                                                                                        + ( emissivity * sigma * bat_area * (model.battery_temperature[zone,month,time-1]**4 - ((model.envTemp[zone,month,time]-4)**4))))\
+                                                                                                               * (900 / (battery_mass * specific_heat_cap)))
 def to_turn_on_SSW_pump(model,zone,month,time):
     return model.SSW_pumpOn[zone, month, time] >= model.SSW_pumped[zone,month,time] / SSW_pump_max_gpm[zone]
 
@@ -386,58 +395,6 @@ def time_of_use(model):
 model.objective = Objective(rule=time_of_use, sense=minimize)
 
 
-# def battery_temperature (model,zone,month,time):
-#     return model.battery_temperature[zone, month, time] == ((1 - 0.74) * model.chargePower[zone,month,time] ) + ((1 - 0.74) * model.dischargePower[zone,month,time])
-
-# def battery_charged(model,zone,month,time):
-#     if time == 0:
-#         return model.battery_charged [zone,month,time] == 0.5 * model.installed_capacity_kwh[zone]
-#     elif time != 0 and model.chargePower[zone, month, time]!=0:
-#         return model.battery_charged [zone,month,time] == model.stateOfCharge[zone,month,time] - model.stateOfCharge[zone,month,time-1]
-#     elif time != 0 and model.chargePower[zone, month, time] == 0:
-#         return model.battery_charged [zone,month,time] == 0
-#
-# def battery_charge_efficiency (model,zone,month,time):
-#     if time==0:
-#        return model.battery_charge_efficiency[zone, month, time] == 0.74
-#     elif time != 0 and model.chargePower[zone, month, time] != 0:
-#        return model.battery_charge_efficiency[zone, month, time] == model.battery_charged[zone, month, time] / model.chargePower[zone, month, time]
-#     elif time != 0 and model.chargePower[zone, month, time] == 0:
-#         return model.battery_charge_efficiency[zone, month, time] == 1
-
-# def battery_discharged(model,zone,month,time):
-#     if time == 0:
-#         return model.battery_discharged[zone, month, time] == 0.5 * model.installed_capacity_kwh[zone]
-#     elif time != 0 and model.dischargePower[zone, month, time] != 0:
-#         return model.battery_discharged[zone, month, time] == model.stateOfCharge[zone, month, time-1] - model.stateOfCharge[zone,month,time]
-#     elif time != 0 and model.dischargePower[zone, month, time] == 0:
-#         return model.battery_discharged[zone, month, time] == 0
-#
-# def battery_discharge_efficiency (model,zone,month,time):
-#     if time ==0:
-#         return model.battery_discharge_efficiency[zone,month,time]==0.74
-#     elif time >> 0 and model.dischargePower[zone, month, time] != 0:
-#         return model.battery_discharge_efficiency[zone, month, time] == model.battery_discharged[zone, month, time] / model.dischargePower[zone, month, time]
-#     elif time >> 0 and model.dischargePower[zone,month,time]==0:
-#         return model.battery_discharge_efficiency[zone,month,time]== 1
-
-### temperature model ####
-# def battery_temperature_onCharging (model,zone,month,time):
-#     if time==0:
-#         return model.battery_temperature[zone,month,time]==0
-#     elif time >>0 and model.chargePower[zone,month,time] !=0:
-#         return model.battery_temperature[zone,month,time] == (1-model.battery_charge_efficiency[zone,month,time]) * model.chargePower[zone,month,time]
-#     elif time>>0 and model.chargePower[zone,month,time] == 0:
-#         return model.battery_temperature[zone,month,time] == 0
-
-# def battery_temperature_onDischarging (model,zone,month,time):
-#     if time==0:
-#         return model.battery_temperature[zone,month,time]==0
-#     if time>>0 and model.dischargePower[zone,month,time] != 0:
-#         return model.battery_temperature [zone,month,time] == (1-model.battery_discharge_efficiency[zone,month,time]) * model.dischargePower[zone,month,time]
-#     elif time>>0 and model.dischargePower[zone,month,time] == 0:
-#         return model.battery_temperature [zone,month,time] == 0
-
 model.constraint_power_balance = Constraint(model.zone,model.month, model.time, rule=power_balance)
 model.constraint_stateOfCharge = Constraint(model.zone, model.month, model.time, rule=stateOfCharge)
 model.constraint_SSW_balance = Constraint(model.zone,model.month, model.time, rule=SSW_balance)
@@ -453,16 +410,16 @@ model.constraint_controlling_chargepower_shortmonthend = Constraint(model.zone, 
 model.constraint_controlling_dischargepower_shortmonthend = Constraint(model.zone, model.month,model.time, rule=controlling_dischargepower_shortmonthend)
 model.constraint_control_charge_power = Constraint(model.zone, model.month,model.time, rule=control_charge_power)
 model.constraint_control_discharge_power = Constraint(model.zone, model.month,model.time, rule=control_discharge_power)
-model.constraint_bat_temp_con = Constraint(model.zone,model.month,model.time,rule=batterytemperature_con)
-model.constraint_bat_temp_conve = Constraint(model.zone,model.month,model.time,rule=batterytemperature_conve)
-model.constraint_bat_temp= Constraint (model.zone,model.month,model.time, rule=batterytemperature)
+model.constraint_bat_temp_gen = Constraint(model.zone,model.month,model.time,rule=batterytemperature_gen)
+# model.constraint_change_bat_temp = Constraint(model.zone,model.month,model.time,rule=change_bat_temp)
+model.constraint_battery_temperature= Constraint (model.zone,model.month,model.time, rule=batterytemperature)
 # model.constraint_SSWpump_to_draw_its_MaxGpm = Constraint(model.zone,rule= SSWpump_to_draw_its_MaxGpm)
 # model.constraint_DSWpump_to_draw_its_MaxGpm = Constraint(model.zone,rule= DSWpump_to_draw_its_MaxGpm)
 ## model.constraint_to_turn_on_RC_SSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_RC_SSWpump)
 ## model.constraint_to_turn_on_RC_DSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_RC_DSWpump)
 ## model.constraint_to_turn_on_FF_SSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_FF_SSWpump)
 ## model.constraint_to_turn_on_FF_DSWpump = Constraint(model.pump,model.month,model.time, rule= to_turn_on_FF_DSWpump)
-model.constraint_bat_temp_gen_fac=Constraint(model.zone,model.month,model.time,rule =bat_temp_gen_factor)
+# model.constraint_bat_temp_gen_fac=Constraint(model.zone,model.month,model.time,rule =bat_temp_gen_factor)
 model.constraint_to_turn_on_SSW_pump = Constraint(model.zone,model.month,model.time, rule= to_turn_on_SSW_pump)
 model.constraint_to_turn_on_DSW_pump = Constraint(model.zone,model.month,model.time, rule= to_turn_on_DSW_pump)
 model.constraint_peak_power = Constraint(model.zone, model.month,model.time, rule=peak_power)
@@ -493,20 +450,20 @@ model.constraint_finalSOC = Constraint(model.zone, rule=final_stateOfCharge)
 
 instance = model.create_instance(report_timing=True)
 
-opt = SolverFactory('gurobi')
+opt = SolverFactory('mindtpy').solve(model, strategy='GOA', mip_solver = 'cplex', nlp_solver= 'baron')
 # opt.options['ResultFile'] = "test.mps"
 opt.options["Threads"] =24
 opt.options["IntFeasTol"] = 1e-2
 opt.options['NodefileStart'] = 0.90
 opt.options["NodeMethod"] = 1
 opt.options["MIPGapAbs"] = 0.05
-opt.options["MIPGap"] = 0.20
+opt.options["MIPGap"] = 0.30
 opt.options["Method"] = 1
 # opt.options["TimeLimit"] = 10000
 opt.options["MIPFocus"]= 1
 opt.options["OutputFlag"]=1
 opt.options["DisplayInterval"]=1
-opt.options["NonConvex"]=2
+# opt.options["NonConvex"]=2
 # model.write('myModel.mps')
 results = opt.solve(instance, tee=True)
 # results.write("test.mps")
@@ -524,9 +481,11 @@ print('zone 1 Battery_kwh = ',value(instance.installed_capacity_kwh[0]))
 print('zone 2 Battery_kwh = ',value(instance.installed_capacity_kwh[1]))
 print('cost = ',value(instance.objective))
 
+
+
 ######  writing summary to excel file #######
 summary = pd.DataFrame()
-summary['time'] = pd.date_range("2019-01-01", periods= 5712, freq="15T")
+summary['time'] = pd.date_range("2019-01-01", periods= 35712, freq="15T")
 summary['RC Demand'] = [instance.base_electrical[0, month, time]
                          for month in model.month
                          for time in model.time ]
@@ -582,7 +541,7 @@ summary['SOC'] = [instance.stateOfCharge[0, month, time].value
                          for month in model.month
                          for time in model.time ]
 
-summary['battery_temperature'] = [instance.bat_temp[0,month,time].value
+summary['battery_temperature'] = [instance.battery_temperature[0,month,time].value
                                 for month in model.month
                                 for time in model.time ]
 
@@ -591,7 +550,7 @@ summary['RC peak power'].iloc[0:12] = [instance.peak_power[0, month].value
                                     for month in model.month]
 
 summary2 = pd.DataFrame()
-summary2['time'] = pd.date_range("2019-01-01", periods= 5712, freq="15T")
+summary2['time'] = pd.date_range("2019-01-01", periods= 35712, freq="15T")
 summary2['FF Demand'] = [instance.base_electrical[1, month, time]
 
                          for month in model.month
@@ -648,7 +607,7 @@ summary2['SOC'] = [instance.stateOfCharge[1, month, time].value
                         for month in model.month
                         for time in model.time ]
 
-summary2['battery_temperature'] = [instance.bat_temp[1,month,time].value
+summary2['battery_temperature'] = [instance.battery_temperature[1,month,time].value
                                 for month in model.month
                                 for time in model.time ]
 
@@ -663,6 +622,7 @@ summary3['zone 1 Battery kwh'] = value(instance.installed_capacity_kwh[0])
 summary3['zone 2 Battery kwh'] = value(instance.installed_capacity_kwh[1])
 summary3['cost'] = value(instance.objective)
 
+#### new folder creation
 def generate_write_folder(solar_increment, transferMax, Battery_cost_kw, Battery_cost_kwh):
     Battery_cost_folder = '/ ${}_kW_${}_kWh'.format(Battery_cost_kw, Battery_cost_kwh)
     Solar_folder = '/ {}x_solar'.format(solar_increment)
@@ -671,17 +631,6 @@ def generate_write_folder(solar_increment, transferMax, Battery_cost_kw, Battery
 
     write_folder = os.getcwd() + variable_eff_folder + Solar_folder + Battery_cost_folder + max_Transfer_limit_water_folder
 
-    # if solar_increment == 1 and Battery_cost_kw != 0 and Battery_cost_kwh != 0 and transferMax == 100000:
-    #
-    #     write_folder = os.getcwd() + variable_eff_folder + Solar_folder + Battery_cost_folder
-    #
-    # elif solar_increment != 1 and Battery_cost_kw != 156 and Battery_cost_kwh != 408 or transferMax != 100000:
-    #
-    #     write_folder = os.getcwd() + variable_eff_folder + Solar_folder + Battery_cost_folder + max_Transfer_limit_water_folder
-    # else:
-    #
-    #     write_folder = os.getcwd() + variable_eff_folder + Solar_folder + Battery_cost_folder + max_Transfer_limit_water_folder
-    #
 
     return write_folder
 
@@ -700,3 +649,12 @@ summary.to_excel(writer, sheet_name='Research Campus')
 summary2.to_excel(writer, sheet_name='FF Station')
 summary3.to_excel(writer, sheet_name='other_details')
 writer.save()
+
+# worksheets= [0,1]
+# cols=['time,RC Charge,RC discharge', 'time,FF Charge,FF Discharge']
+# # generated_excel_file = pd.read_excel(writer, sheet_name= )
+# dataframe_sheets = {}
+# for ws,col in zip(worksheets,cols):
+#     dataframe_sheets[ws] = pd.read_excel(writer, sheet_name= ws, usecols = col)
+
+
