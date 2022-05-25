@@ -17,17 +17,17 @@ logger = logging.getLogger('pyomo.solver')
 
 
 ESmin= 0
-ESmax= 250
-SOCmax = 1000
+ESmax= 10000
+SOCmax = 1000000
 transferMax = 20400
 model = AbstractModel()
 model.zone = RangeSet(0, 1)
 kWh_price = [0.26, 0.20]
 kW_price = [13, 35]
-solar_increment = 0
+solar_increment = 1
 air_density = 1.2 # kg/m**3
 blade_length = 20 # m
-wind_tur_eff = 0.45
+wind_tur_eff = 0.35
 
 # SSW_pump_max_gpm = 13800
 # DSW_pump_max_gpm = 19500
@@ -113,8 +113,8 @@ def DSW1_demand(model, zone,month, time):
 model.DSW_demand = Param(model.zone,model.month, model.time, initialize = DSW1_demand)
 
 def winddata(model, zone,month, time):
-    return (wind_speed[zone][month-1, time] / 2.23693629)
-model.wind_speed = Param(model.zone,model.month, model.time, initialize = winddata)
+    return (((wind_speed[zone][month-1, time] / 2.23693629)**3 ) * 0.5 * 3.14 * blade_length * blade_length * air_density * wind_tur_eff)/1000
+model.wind_pow = Param(model.zone,model.month, model.time, initialize = winddata)
 
 # region Declare Variable
 model.SSW_pumpPower = Var(model.zone,model.month, model.time, domain=NonNegativeReals, bounds=(0, Pmaxff))
@@ -132,7 +132,7 @@ model.curtailedPower = Var(model.zone,model.month,model.time, domain=NonNegative
 model.installed_capacity_kw = Var(model.zone, domain=NonNegativeReals, bounds=(ESmin, ESmax))
 model.installed_capacity_kwh = Var(model.zone, domain=NonNegativeReals, bounds=(ESmin, ESmax*6))
 model.gamma = Var(model.zone, model.month, model.time, domain=Binary)
-model.wind_pow = Var(model.zone,model.month,model.time, domain= NonNegativeReals, bounds=(0, 12))
+# model.wind_pow = Var(model.zone,model.month,model.time, domain= NonNegativeReals, bounds=(0, 10000))
 #1 model.on_off = Var(model.zone, model.month, model.time, domain=Binary)
 
 def SSW_gpm_to_pump_power(model, zone,  month, time):
@@ -157,6 +157,7 @@ def power_balance(model, zone,month, time):
                                                         - model.dischargePower[zone, month, time] \
                                                         + model.chargePower[zone, month, time]\
                                                         - model.wind_pow[zone,month,time]
+
 def peak_power(model,zone,month,time):
     return model.peak_power[zone, month] >= model.purchasedPower[zone, month, time]
 
@@ -245,11 +246,11 @@ def SSWpump_to_draw_its_MaxGpm(model,zone):
 def DSWpump_to_draw_its_MaxGpm(model,zone):
     return model.DSW_pump[zone,month,time] == DSW_pump_max_gpm[zone]
 
-def wind_power(model,zone,month,time):
-    return model.wind_pow[zone,month,time] == 0.5 * 3.14 * blade_length * blade_length * air_density * wind_tur_eff * model.wind_speed[zone,month,time]
+# def wind_power(model,zone,month,time):
+#      return model.wind_pow[zone,month,time] == 0.5 * 3.14 * blade_length * blade_length * air_density * wind_tur_eff * model.wind_speed[zone,month,time]
 
-def limits_windpower(model,zone,month,time):
-    return model.wind_pow[zone,month,time] <= model.purchasedPower[zone,month, time]
+# def limits_windpower(model,zone,month,time):
+#     return model.wind_pow[zone,month,time] <= model.purchasedPower[zone,month, time]
 
 def time_of_use(model):
     return 7.75 * sum([model.purchasedPower[zone, month, time] * kWh_price[zone] * dt
@@ -267,6 +268,7 @@ model.constraint_power_balance = Constraint(model.zone,model.month, model.time, 
 model.constraint_stateOfCharge = Constraint(model.zone, model.month, model.time, rule=stateOfCharge)
 model.constraint_SSW_balance = Constraint(model.zone,model.month, model.time, rule=SSW_balance)
 model.constraint_DSW_balance = Constraint(model.zone,model.month, model.time, rule=DSW_balance)
+# model.constraint_wind_power = Constraint(model.zone,model.month,model.time, rule=wind_power)
 ## model.constraint_SSW_mass_flow = Constraint(model.zone, model.month, model.time, rule=SSW_mass_flow)
 ## model.constraint_DSW_mass_flow = Constraint(model.zone, model.month, model.time, rule=DSW_mass_flow)
 ## model.constraint_SSW_power_demand = Constraint(model.zone, model.month, model.time, rule=SSW_power_demand)
@@ -289,8 +291,8 @@ model.constraint_transfer_SSWdirection = Constraint(model.month,model.time,rule=
 model.constraint_transfer_DSWdirection = Constraint( model.month,model.time,rule=transfer_DSWdirection)
 model.constraint_transfer_DSWoneway = Constraint(model.month,model.time,rule=transfer_DSWoneWay)
 model.constraint_transfer_SSWoneway= Constraint( model.month,model.time,rule=transfer_SSWoneWay)
-model.constraint_limits_windpower = Constraint(model.zone,model.month,model.time, rule = limits_windpower)
 model.constraint_finalSOC = Constraint(model.zone, rule=final_stateOfCharge)
+# model.constraint_limits_windpower = Constraint(model.zone,model.month,model.time, rule=limits_windpower)
 
 instance = model.create_instance(report_timing=True)
 
@@ -336,7 +338,7 @@ summary['RC Solar'] = [solar_increment * instance.solar[0, month, time]
                          for month in model.month
                          for time in model.time ]
 
-summary['RC wind'] = [instance.wind_pow[0, month, time].value
+summary['RC wind'] = [instance.wind_pow[0, month, time]
                          for month in model.month
                          for time in model.time ]
 
@@ -402,7 +404,7 @@ summary2['FF Solar'] = [instance.solar[1, month, time]
                          for month in model.month
                          for time in model.time ]
 
-summary2['FF wind'] = [instance.wind_pow[1, month, time].value
+summary2['FF wind'] = [instance.wind_pow[1, month, time]
                          for month in model.month
                          for time in model.time ]
 
@@ -468,7 +470,7 @@ def generate_write_folder(solar_increment, transferMax, Battery_cost_kw, Battery
     Battery_cost_folder = '/ ${}_kW_${}_kWh'.format(Battery_cost_kw, Battery_cost_kwh)
     Solar_folder = '/ {}x_solar'.format(solar_increment)
     max_Transfer_limit_water_folder = '/ {}_max_transfer_of_water'.format(transferMax)
-    variable_eff_folder = '/ sensitivity_study_batry_cost'
+    variable_eff_folder = '/ sensitivity_study_windturbine'
 
     write_folder = os.getcwd() + variable_eff_folder + Solar_folder + Battery_cost_folder + max_Transfer_limit_water_folder
 
