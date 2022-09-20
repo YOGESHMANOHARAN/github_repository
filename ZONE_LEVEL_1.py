@@ -57,8 +57,8 @@ solarMax = solar[0].max()
 # print(solarMax)
 
 # SOCmax = 1000  # Maximum state-of-charge in kWh
-charge_eff = 0.86
-discharge_eff = 0.86
+charge_eff = 0.75
+discharge_eff = 0.75
 Pmax = 100
 dt = 15 / 60  #Need to calculate this for different time steps
 # endregion
